@@ -58,20 +58,23 @@ if [[ -z "${NG_UPSTREAM_TOKEN:-}" || "$NG_UPSTREAM_TOKEN" == *"PASTE_YOUR_TOKEN_
   say "The gateway needs three things from your upstream provider."
   say "Get them from your provider dashboard, then paste them below."
   echo
+  # Read from /dev/tty, not stdin: when this script is run as
+  # "curl ... | bash", stdin is the curl pipe and a plain "read" would hit
+  # EOF immediately and look like an empty answer.
   ask "Upstream key (starts with tj_):"
-  read -r KEY_IN
+  read -r KEY_IN < /dev/tty
   if [[ -z "$KEY_IN" ]]; then
     bad "No key entered. Cannot continue."
     exit 1
   fi
   ask "Upstream model name (as listed in the provider /v1/models):"
-  read -r MODEL_IN
+  read -r MODEL_IN < /dev/tty
   if [[ -z "$MODEL_IN" ]]; then
     bad "No model name entered. Cannot continue."
     exit 1
   fi
   ask "Upstream base URL (default https://api.tokenjuice.ai/v1):"
-  read -r BASE_IN
+  read -r BASE_IN < /dev/tty
   BASE_IN="${BASE_IN:-https://api.tokenjuice.ai/v1}"
 
   sed -i '' -e "s|^NG_UPSTREAM_TOKEN=.*|NG_UPSTREAM_TOKEN=\"${KEY_IN}\"|" \
@@ -297,7 +300,7 @@ echo "   4) DeepSeek Harness (DSH)"
 echo "   5) All of the above"
 echo
 ask "Enter 1-5 (default 1):"
-read -r CHOICE
+read -r CHOICE < /dev/tty
 CHOICE="${CHOICE:-1}"
 
 case "$CHOICE" in
