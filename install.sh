@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+# NG-Opus-Gateway - interactive installer (macOS)
+#
+#   curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.sh | bash
+#
+# Starts the gateway, asks which client to wire up, installs any client that
+# is missing, wires the model in, and prints the base URL and API key.
+set -euo pipefail
+
+# ---------------------------- constants ----------------------------
+BRAND="NG free gateway"
+REPO="nidhish28guhan-netizen/NG-Opus-Gateway"
+INSTALL_DIR="${NG_GATEWAY_DIR:-$HOME/.ng-opus-gateway}"
+PORT="${NG_GATEWAY_PORT:-4002}"
+GATEWAY_KEY="${NG_GATEWAY_KEY:-NG-Claude-Anthropic}"
+ENV_FILE="$INSTALL_DIR/scripts/gateway.env"
+LOG="$INSTALL_DIR/gateway.log"
+VENV="$INSTALL_DIR/.venv"
+LABEL="ai.ng-opus-gateway.gateway"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+# ---------------------------- helpers ------------------------------
+say()  { printf '[*] %s\n' "$*"; }
+good() { printf '[+] %s\n' "$*"; }
+bad()  { printf '[-] %s\n' "$*" >&2; }
+ask()  { printf '[?] %s ' "$*"; }
+
+banner() {
+  echo
+  echo "------------------------------------------------"
+  echo "  ${BRAND} - Limited time only"
+  echo "------------------------------------------------"
+  echo
+}
+
+# ------------------------ 1. get the code --------------------------
+if [[ ! -d "$INSTALL_DIR/.git" ]]; then
+  say "Cloning NG-Opus-Gateway into $INSTALL_DIR..."
+  git clone -q "https://github.com/${REPO}.git" "$INSTALL_DIR"
+  good "Downloaded."
+else
+  say "Updating the existing copy..."
+  git -C "$INSTALL_DIR" pull -q --ff-only 2>/dev/null || true
+fi
+cd "$INSTALL_DIR"
+
+# ---------------------- 2. upstream key ----------------------------
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp scripts/gateway.env.example "$ENV_FILE"
+fi
+# shellcheck disable=SC1090
+set +u; # shellcheck source=/dev/null
+source "$ENV_FILE"
+set -u
+
+if [[ -z "${NG_UPSTREAM_TOKEN:-}" || "$NG_UPSTREAM_TOKEN" == *"PASTE_YOUR_TOKEN_HERE"* ]]; then
+  echo
+  say "The gateway needs three things from your upstream provider."
+  say "Get them from your provider dashboard, then paste them below."
+  echo
+  ask "Upstream key (starts with tj_):"
+  read -r KEY_IN
+  if [[ -z "$KEY_IN" ]]; then
+    bad "No key entered. Cannot continue."
+    exit 1
+  fi
+  ask "Upstream model name (as listed in the provider /v1/models):"
+  read -r MODEL_IN
+  if [[ -z "$MODEL_IN" ]]; then
+    bad "No model name entered. Cannot continue."
+    exit 1
+  fi
+  ask "Upstream base URL (default https://api.tokenjuice.ai/v1):"
+  read -r BASE_IN
+  BASE_IN="${BASE_IN:-https://api.tokenjuice.ai/v1}"
+
+  sed -i '' -e "s|^NG_UPSTREAM_TOKEN=.*|NG_UPSTREAM_TOKEN=\"${KEY_IN}\"|" \
+            -e "s|^NG_UPSTREAM_MODEL=.*|NG_UPSTREAM_MODEL=\"${MODEL_IN}\"|" \
+            -e "s|^NG_UPSTREAM_BASE=.*|NG_UPSTREAM_BASE=\"${BASE_IN}\"|" "$ENV_FILE"
+  NG_UPSTREAM_TOKEN="$KEY_IN"
+  NG_UPSTREAM_MODEL="$MODEL_IN"
+  NG_UPSTREAM_BASE="$BASE_IN"
+  good "Saved to $ENV_FILE (git-ignored, never uploaded)."
+fi
+
+export NG_UPSTREAM_TOKEN NG_UPSTREAM_MODEL NG_UPSTREAM_BASE
+export NG_GATEWAY_KEY="$GATEWAY_KEY"
+export CLAUDE_DESKTOP_LITELLM_KEY="$GATEWAY_KEY"
+
+# ----------------------- 3. the gateway ----------------------------
+if [[ ! -x "$VENV/bin/litellm" ]]; then
+  say "Building an isolated Python environment (one-time, about 1 min)..."
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" install --quiet --upgrade pip
+  "$VENV/bin/pip" install --quiet litellm
+  good "Installed."
+fi
+
+# Stop any old instance on this port, then install the launchd agent.
+lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null || true
+launchctl list "$LABEL" >/dev/null 2>&1 && launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+
+mkdir -p "$(dirname "$PLIST")"
+cat > "$PLIST" <<PLISTDOC
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${VENV}/bin/litellm</string>
+    <string>--config</string><string>${INSTALL_DIR}/gateway/litellm-config.yaml</string>
+    <string>--port</string><string>${PORT}</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NG_UPSTREAM_TOKEN</key><string>${NG_UPSTREAM_TOKEN}</string>
+    <key>NG_UPSTREAM_MODEL</key><string>${NG_UPSTREAM_MODEL}</string>
+    <key>NG_UPSTREAM_BASE</key><string>${NG_UPSTREAM_BASE}</string>
+    <key>NG_GATEWAY_KEY</key><string>${GATEWAY_KEY}</string>
+    <key>CLAUDE_DESKTOP_LITELLM_KEY</key><string>${GATEWAY_KEY}</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${LOG}</string>
+  <key>StandardErrorPath</key><string>${LOG}</string>
+</dict>
+</plist>
+PLISTDOC
+launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
+
+say "Starting the gateway on port $PORT..."
+UP=0
+for _i in $(seq 1 40); do
+  if curl -s -m 3 -o /dev/null "http://127.0.0.1:${PORT}/health/liveliness" 2>/dev/null; then
+    UP=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$UP" -ne 1 ]]; then
+  bad "The gateway did not come up in time. Check $LOG"
+  exit 1
+fi
+good "Gateway is live."
+
+LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
+BASE_URL="http://127.0.0.1:${PORT}"
+LAN_URL="http://${LAN_IP:-THIS_MACHINE_LAN_IP}:${PORT}"
+
+# ------------------------- 4. pick a client ------------------------
+has() { command -v "$1" >/dev/null 2>&1; }
+
+install_claude_cli() {
+  if has claude; then good "Claude Code CLI already installed."; return 0; fi
+  say "Installing the Claude Code CLI..."
+  if ! has npm; then
+    bad "Node/npm is required for the Claude Code CLI but was not found."
+    say "Install Node from https://nodejs.org and re-run this script."
+    return 1
+  fi
+  npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code
+  if has claude; then good "Claude Code CLI installed."; return 0; fi
+  bad "Claude Code CLI install failed."
+  return 1
+}
+
+install_codex() {
+  if has codex; then good "Codex CLI already installed."; return 0; fi
+  say "Installing the Codex CLI..."
+  if ! has npm; then
+    bad "Node/npm is required for the Codex CLI but was not found."
+    return 1
+  fi
+  npm install -g @openai/codex >/dev/null 2>&1 || npm install -g @openai/codex
+  if has codex; then good "Codex CLI installed."; return 0; fi
+  bad "Codex CLI install failed."
+  return 1
+}
+
+install_antigravity() {
+  if [[ -d "/Applications/Antigravity.app" ]]; then good "Antigravity already installed."; return 0; fi
+  say "Downloading Antigravity..."
+  local tmp
+  tmp="$(mktemp -d)"
+  if curl -fsSL "https://storage.googleapis.com/antigravity/releases/latest/Antigravity-darwin-arm64.zip" -o "${tmp}/antigravity.zip"; then
+    ( cd "$tmp" && unzip -q antigravity.zip && mv -f Antigravity.app /Applications/ 2>/dev/null ) || true
+    if [[ -d "/Applications/Antigravity.app" ]]; then
+      good "Antigravity installed."
+      return 0
+    fi
+  fi
+  bad "Could not install Antigravity automatically."
+  say "Download it from https://antigravity.google and it will pick up the config this script writes."
+  return 0
+}
+
+install_dsh() {
+  if [[ -d "/Applications/DeepSeek Harness.app" ]]; then good "DeepSeek Harness already installed."; return 0; fi
+  bad "DeepSeek Harness is a desktop app and needs a manual install."
+  say "Get it from the official site, then re-run this script to wire the model."
+  return 0
+}
+
+# --------------------- 5. wire the model in ------------------------
+wire_claude_cli() {
+  install_claude_cli || return 0
+  mkdir -p "$HOME/.claude"
+  local f="$HOME/.claude/settings.json"
+  "$VENV/bin/python" "$INSTALL_DIR/scripts/patch_claude_settings.py" "$f" "$BASE_URL" "$GATEWAY_KEY"
+  good "Wired the model into Claude Code ($HOME/.claude/settings.json)."
+}
+
+wire_codex() {
+  install_codex || return 0
+  mkdir -p "$HOME/.codex"
+  cat > "$HOME/.codex/config.toml" <<TOMLDOC
+# Wired by NG-Opus-Gateway
+model = "claude-opus-5-5"
+model_provider = "ng-gateway"
+
+[model_providers.ng-gateway]
+name = "NG Gateway"
+base_url = "${BASE_URL}/v1"
+wire_api = "chat"
+env_key = "NG_GATEWAY_KEY"
+TOMLDOC
+  # codex reads the key from the environment named by env_key
+  if ! grep -q 'NG_GATEWAY_KEY' "$HOME/.zshrc" 2>/dev/null; then
+    printf 'export NG_GATEWAY_KEY="%s"\n' "$GATEWAY_KEY" >> "$HOME/.zshrc"
+  fi
+  good "Wired the model into Codex ($HOME/.codex/config.toml)."
+}
+
+wire_antigravity() {
+  install_antigravity || return 0
+  mkdir -p "$HOME/.antigravity"
+  cat > "$HOME/.antigravity/settings.json" <<JSONDOC
+{
+  "provider": "ng-gateway",
+  "model": "claude-opus-5-5",
+  "baseUrl": "${BASE_URL}/v1",
+  "apiKey": "${GATEWAY_KEY}"
+}
+JSONDOC
+  good "Wrote Antigravity settings ($HOME/.antigravity/settings.json)."
+  say "If Antigravity does not pick these up, add a custom OpenAI-compatible"
+  say "provider inside the app with the base URL and key printed below."
+}
+
+wire_dsh() {
+  install_dsh || return 0
+  local prof="$HOME/.dsh/profiles/desktop"
+  mkdir -p "$prof"
+  cat > "$prof/cordis.patch.yml" <<YAMLDOC
+llm-pi-ai:
+  config:
+    providers:
+      ng-gateway:
+        displayName: ng-gateway
+        api: openai-completions
+        baseURL: ${BASE_URL}/v1
+        headers:
+          Authorization: Bearer ${GATEWAY_KEY}
+        streamIdleTimeoutMs: 600000
+        timeoutMs: 1800000
+        retryPolicy:
+          mode: normal
+          maxRetries: 2
+          retryableCodes: [SERVER, RATE_LIMIT, TIMEOUT, TRANSPORT]
+          backoff:
+            initialDelayMs: 3000
+            maxDelayMs: 45000
+        models:
+          - id: claude-opus-5-5
+            name: Claude Opus 5.5 (ng-gateway)
+            contextWindow: 262144
+            maxTokens: 128000
+            input:
+              - text
+              - image
+YAMLDOC
+  good "Wired the model into DeepSeek Harness ($prof/cordis.patch.yml)."
+  say "Restart DeepSeek Harness for the route to load - it only reads the"
+  say "profile at startup."
+}
+
+# ---------------------------- the menu -----------------------------
+banner
+say "Which client should I open and wire up?"
+echo
+echo "   1) Claude Code"
+echo "   2) Codex"
+echo "   3) Antigravity"
+echo "   4) DeepSeek Harness (DSH)"
+echo "   5) All of the above"
+echo
+ask "Enter 1-5 (default 1):"
+read -r CHOICE
+CHOICE="${CHOICE:-1}"
+
+case "$CHOICE" in
+  1) wire_claude_cli ;;
+  2) wire_codex ;;
+  3) wire_antigravity ;;
+  4) wire_dsh ;;
+  5) wire_claude_cli; wire_codex; wire_antigravity; wire_dsh ;;
+  *) bad "Invalid choice: $CHOICE"; bad "Wiring nothing, but the gateway is running."; exit 0 ;;
+esac
+
+# ---------------------- 6. show credentials ------------------------
+banner
+echo "  Base URL    $BASE_URL"
+if [[ -n "$LAN_IP" ]]; then
+  echo "  LAN URL     $LAN_URL  (other devices on your Wi-Fi)"
+fi
+echo "  API key     $GATEWAY_KEY"
+echo "  Model       claude-opus-5-5"
+echo
+say "Give these to any OpenAI-compatible client to use the gateway."
+echo
+good "Done. The gateway auto-starts on login."
+echo

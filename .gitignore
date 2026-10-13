@@ -1,0 +1,14 @@
+# Secrets — never commit these
+scripts/gateway.env
+
+# Generated gateway launcher wrapper (built by the installers)
+scripts/run-gateway.cmd
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Gateway runtime artifacts
+gateway.log
+*.log

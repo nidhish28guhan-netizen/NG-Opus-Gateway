@@ -1,0 +1,53 @@
+# NG-Opus-Gateway — gateway config
+#
+#   Client (Claude / Codex / Antigravity / DSH)
+#        |  Authorization: Bearer NG-Claude-Anthropic
+#        v
+#   Gateway :4002
+#        |  OpenAI-style chat completions
+#        v
+#   Upstream provider
+#
+# Claude Desktop requires every model name to contain "claude" or "anthropic"
+# or it silently drops the model from its picker — hence the claude-* name.
+
+model_list:
+  - model_name: claude-opus-5-5
+    litellm_params:
+      model: os.environ/NG_UPSTREAM_MODEL
+      api_base: os.environ/NG_UPSTREAM_BASE
+      api_key: os.environ/NG_UPSTREAM_TOKEN
+      drop_params: true
+
+  # Same upstream under more picker entries. Uncomment if a client asks for a
+  # Sonnet/Haiku-tier model by name.
+  #
+  # - model_name: claude-sonnet-4-5
+  #   litellm_params:
+  #     model: os.environ/NG_UPSTREAM_MODEL
+  #     api_base: os.environ/NG_UPSTREAM_BASE
+  #     api_key: os.environ/NG_UPSTREAM_TOKEN
+  #     drop_params: true
+  #
+  # - model_name: claude-haiku-4-5
+  #   litellm_params:
+  #     model: os.environ/NG_UPSTREAM_MODEL
+  #     api_base: os.environ/NG_UPSTREAM_BASE
+  #     api_key: os.environ/NG_UPSTREAM_TOKEN
+  #     drop_params: true
+
+litellm_settings:
+  drop_params: true
+
+  # Normalizes requests so the upstream stops returning bare 400s:
+  #   - reasoning_effort "medium"/"default" -> "high"  (upstream rejects those)
+  #   - trims oldest messages when input+output would exceed the context window
+  #   - caps max_completion_tokens so input + output fits the budget
+  callbacks: ng_hook.proxy_handler_instance
+
+  # Route /v1/messages through chat/completions instead of the Responses API,
+  # which this upstream rejects with a bare 400.
+  use_chat_completions_url_for_anthropic_messages: true
+
+general_settings:
+  master_key: os.environ/NG_GATEWAY_KEY
