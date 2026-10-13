@@ -55,11 +55,14 @@ from litellm.types.utils import CallTypesLiteral
 # reasoning_effort values this upstream rejects.
 _REJECTED = frozenset({"medium", "default"})
 # Replacement tier. "high" is the closest accepted tier above "medium",
-# so Claude Desktop keeps the strong reasoning behavior it asked for.
+# so the client keeps the strong reasoning behavior it asked for.
 _ACCEPTED_REPLACEMENT = "high"
 # Bottom of litellm's "high" bucket (DEFAULT_REASONING_EFFORT_HIGH_THINKING_BUDGET).
 # A budget >= this value derives to reasoning_effort="high".
-_HIGH_BUDGET = 4096
+# Raised well above litellm's floor: a larger thinking budget makes the
+# upstream spend more tokens reasoning before it answers, which is the main
+# lever for making this gateway feel like a bigger, more thorough model.
+_HIGH_BUDGET = 32768
 
 
 def _clamp_effort(effort: Any) -> Any:
@@ -201,6 +204,9 @@ class NGGatewayHook(CustomLogger):
         # varied output, and the strongest reasoning tier the upstream accepts.
         self._boost_sampling(data)
 
+        # Ask for thorough, full-length answers instead of terse summaries.
+        self._nudge_verbosity(data)
+
         # The upstream's 262144 context budget covers input AND output. Clients
         # like DSH ask for max_completion_tokens=128000, which alone is fine,
         # but once the conversation grows the sum overflows and the upstream
@@ -238,6 +244,58 @@ class NGGatewayHook(CustomLogger):
             # a client that sent nothing still gets max reasoning.
             if holder.get("reasoning_effort") is None:
                 holder["reasoning_effort"] = "high"
+
+    # --- verbosity nudge --------------------------------------------------
+    # The upstream answers tersely by default. Prepend a system instruction
+    # asking for thoroughness so replies carry the depth and length people
+    # expect from a frontier model, instead of a two-line summary.
+    _VERBOSITY_PROMPT = (
+        "You are a thorough, detailed assistant. Answer in full: explain your "
+        "reasoning, cover the important edge cases, and use structure (short "
+        "headings, bullet points, or numbered steps) where it helps. Prefer a "
+        "complete explanation over a brief one, but never pad or repeat."
+    )
+
+    def _nudge_verbosity(self, data: dict) -> None:
+        """Prepend a system instruction asking for thorough, complete answers."""
+        for holder in (data, data.get("messages_api_kwargs")):
+            if not isinstance(holder, dict):
+                continue
+            messages = holder.get("messages")
+            if not isinstance(messages, list) or not messages:
+                continue
+
+            # /v1/messages requests carry the system text as a top-level field.
+            sys_field = holder.get("system")
+            if isinstance(sys_field, str):
+                if self._VERBOSITY_PROMPT.split()[0] not in sys_field.split()[:6]:
+                    holder["system"] = self._VERBOSITY_PROMPT + "\n\n" + sys_field
+                continue
+
+            if isinstance(sys_field, list):
+                joined = "\n".join(
+                    b.get("text", "") for b in sys_field
+                    if isinstance(b, dict)
+                )
+                if self._VERBOSITY_PROMPT.split()[0] not in joined.split()[:6]:
+                    holder["system"] = [
+                        {"type": "text", "text": self._VERBOSITY_PROMPT},
+                        *sys_field,
+                    ]
+                continue
+
+            # chat/completions: a leading system message, if any.
+            if isinstance(messages[0], dict) and messages[0].get("role") == "system":
+                existing = messages[0].get("content")
+                text = existing if isinstance(existing, str) else ""
+                if self._VERBOSITY_PROMPT.split()[0] not in text.split()[:6]:
+                    messages[0]["content"] = self._VERBOSITY_PROMPT + "\n\n" + text
+                continue
+
+            # No system message at all: insert one.
+            messages.insert(
+                0, {"role": "system", "content": self._VERBOSITY_PROMPT}
+            )
 
     # --- output capping ---------------------------------------------------
     # Same upstream context budget as above; the reply is counted against it.
