@@ -88,7 +88,11 @@ case "$NG_UPSTREAM_MODEL" in
 esac
 
 # ----------------------- 3. the gateway ----------------------------
-if [[ ! -x "$VENV/bin/litellm" ]]; then
+# Build the venv if missing, or repair it if the proxy extras are absent
+# (early installs used plain "litellm", which lacks the websockets module the
+# proxy server needs - the gateway then crashes on startup).
+if [[ ! -x "$VENV/bin/litellm" ]] || ! "$VENV/bin/python" -c "import websockets" >/dev/null 2>&1; then
+  if [[ -d "$VENV" ]]; then rm -rf "$VENV"; fi
   say "Building an isolated Python environment (one-time, about 1 min)..."
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip

@@ -90,7 +90,16 @@ $env:NG_GATEWAY_KEY = $Key
 $env:CLAUDE_DESKTOP_LITELLM_KEY = $Key
 
 # ----------------------- 3. the gateway ---------------------------
-if (-not (Test-Path (Join-Path $Venv "Scripts\litellm.exe"))) {
+# Build the venv if missing, or repair it if the proxy extras are absent
+# (early installs used plain "litellm", which lacks the websockets module the
+# proxy server needs - the gateway then crashes on startup).
+$needsVenv = -not (Test-Path (Join-Path $Venv "Scripts\litellm.exe"))
+if (-not $needsVenv) {
+  $probe = & (Join-Path $Venv "Scripts\python.exe") -c "import websockets" 2>$null
+  if ($LASTEXITCODE -ne 0) { $needsVenv = $true }
+}
+if ($needsVenv) {
+  if (Test-Path $Venv) { Remove-Item -Recurse -Force $Venv -ErrorAction SilentlyContinue }
   Write-Info "Building an isolated Python environment (one-time, ~1 min)..."
   python -m venv $Venv
   & (Join-Path $Venv "Scripts\python.exe") -m pip install --quiet --upgrade pip
