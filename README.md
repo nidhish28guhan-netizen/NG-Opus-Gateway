@@ -139,6 +139,32 @@ cd $env:USERPROFILE\.ng-opus-gateway
 .\scripts\start-gateway.ps1 -Stop
 ```
 
+## Sharing it — per-user keys and daily limits
+
+The key the installer prints is the **owner key**. It has no limit. If you
+share the gateway with other people, give each person their own key instead:
+
+```bash
+cd ~/.ng-opus-gateway
+./scripts/ng-users.sh add alice          # prints a key ONCE - copy it
+./scripts/ng-users.sh list               # who spent what today
+./scripts/ng-users.sh reset  alice       # new key, old one stops working
+./scripts/ng-users.sh delete alice       # revoke entirely
+```
+
+- **30,000,000 tokens per user per day** (change with `NG_DAILY_TOKEN_LIMIT`).
+  Over that, the user gets a clean `429` and the limit resets at midnight.
+- **No database, no SQL.** Usage lives in a single JSON file,
+  `gateway/gateway.ng-ledger.json`, governed entirely by your own machine.
+- **It's a hash-chained ledger, so it can't be quietly edited.** Every spend
+  entry is HMAC-signed and linked to the previous one; the gateway re-verifies
+  the whole chain on every read. Edit a value or forge a signature and that
+  user's spend counts as zero — you can't cheat it, and you can't hide it.
+- **Keys are never stored.** Only a salted SHA-256 hash is kept, so a lost key
+  can't be recovered or read off the disk. Reset it instead.
+- The upstream API key never leaves your machine and is never handed to
+  users — they only ever see their own `NG-...` key.
+
 ## The upstream credentials
 
 - This is a **free gateway**: the upstream key is committed in

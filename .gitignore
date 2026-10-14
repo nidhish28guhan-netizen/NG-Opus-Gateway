@@ -12,3 +12,7 @@ __pycache__/
 # Gateway runtime artifacts
 gateway.log
 *.log
+
+# Per-user token ledger (contains key hashes + spend; machine-local only)
+gateway/ng-ledger.json
+gateway/*.ng-ledger.json

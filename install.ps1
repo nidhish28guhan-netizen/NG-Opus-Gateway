@@ -76,6 +76,12 @@ if (-not $env:NG_UPSTREAM_MODEL) {
   }
 }
 
+# litellm needs a provider prefix to know which wire protocol to use. Discovery
+# returns a bare model id, so add "openai/" unless one is already present.
+if (-not $env:NG_UPSTREAM_MODEL.Contains('/')) {
+  $env:NG_UPSTREAM_MODEL = "openai/$($env:NG_UPSTREAM_MODEL)"
+}
+
 $Key = if ($env:NG_GATEWAY_KEY) { $env:NG_GATEWAY_KEY } else { "NG-Claude-Anthropic" }
 $env:NG_GATEWAY_KEY = $Key
 $env:CLAUDE_DESKTOP_LITELLM_KEY = $Key

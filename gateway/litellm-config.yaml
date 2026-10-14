@@ -14,6 +14,9 @@
 model_list:
   - model_name: claude-sonnet-5-5
     litellm_params:
+      # "openai/" tells litellm to speak the OpenAI-compatible chat/completions
+      # protocol to the provider. NG_UPSTREAM_MODEL is discovered at runtime
+      # and is a bare model id, so prefix it here when the env omits it.
       model: os.environ/NG_UPSTREAM_MODEL
       api_base: os.environ/NG_UPSTREAM_BASE
       api_key: os.environ/NG_UPSTREAM_TOKEN
@@ -51,3 +54,7 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/NG_GATEWAY_KEY
+  # Per-user keys, validated against the local hash-chained ledger. This
+  # replaces litellm's database-backed key store so the gateway stays
+  # SQL-free and fully governed by this machine.
+  custom_auth: ng_auth.user_api_key_auth

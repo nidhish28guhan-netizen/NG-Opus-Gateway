@@ -54,6 +54,14 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
   fi
 fi
 
+# litellm needs a provider prefix to know which protocol to speak. The
+# discovery above returns a bare model id, so prefix it unless the env already
+# carries one ("openai/...", "anthropic/...", ...).
+case "$NG_UPSTREAM_MODEL" in
+  */*) ;;  # already prefixed
+  *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL" ;;
+esac
+
 : "${NG_GATEWAY_KEY:=NG-Claude-Anthropic}"
 
 export NG_UPSTREAM_TOKEN NG_UPSTREAM_MODEL NG_UPSTREAM_BASE

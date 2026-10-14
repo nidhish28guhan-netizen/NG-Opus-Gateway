@@ -65,6 +65,33 @@ _ACCEPTED_REPLACEMENT = "high"
 _HIGH_BUDGET = 32768
 
 
+def _ledger():
+    """Load the per-user ledger module (gateway/ng_users.py).
+
+    litellm loads this hook by file path via ``get_instance_fn``, so the
+    gateway directory is not necessarily on ``sys.path``; resolve the sibling
+    file explicitly. Cached in sys.modules so the module (and its salt) is
+    identical for every caller in this process.
+    """
+    import importlib.util
+    import os
+    import sys
+
+    cached = sys.modules.get("ng_users")
+    if cached is not None:
+        return cached
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "ng_users.py")
+    spec = importlib.util.spec_from_file_location("ng_users", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load ng_users.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["ng_users"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+
 def _clamp_effort(effort: Any) -> Any:
     """Return an effort value the upstream accepts.
 
@@ -134,6 +161,46 @@ def _normalize_thinking(thinking: Any) -> Any:
 
 class NGGatewayHook(CustomLogger):
     """Normalizes ``reasoning_effort`` so the upstream stops returning 400."""
+
+    async def async_log_success_event(
+        self,
+        kwargs: dict,
+        response_obj,
+        start_time,
+        end_time,
+        **kwargs_extra: Any,
+    ) -> None:
+        """Record spent tokens after a confirmed upstream response.
+
+        This is the only honest place to count usage: the call actually
+        happened, so the allowance is genuinely spent. Counting before the
+        call would overcharge users whose requests fail.
+        """
+        try:
+            ng_users = _ledger()
+        except Exception:
+            return  # ledger not installed; budgeting is off
+        try:
+            user = self._resolve_user(kwargs)
+            if user is None:
+                return
+            usage = getattr(response_obj, "usage", None) or getattr(
+                response_obj, "_hidden_params", {}).get("usage", {})
+            total = 0
+            if isinstance(usage, dict):
+                total = (int(usage.get("total_tokens") or 0)
+                         or int(usage.get("completion_tokens") or 0)
+                         + int(usage.get("prompt_tokens") or 0))
+            elif usage is not None:
+                total = (int(getattr(usage, "total_tokens", 0) or 0)
+                         or int(getattr(usage, "completion_tokens", 0) or 0)
+                         + int(getattr(usage, "prompt_tokens", 0) or 0))
+            if total > 0:
+                ng_users.record_usage(user, total)
+        except Exception as exc:  # pragma: no cover
+            from litellm import verbose_logger
+
+            verbose_logger.warning(f"ng-gateway: usage recording failed: {exc}")
 
     async def async_pre_call_hook(
         self,
@@ -214,7 +281,100 @@ class NGGatewayHook(CustomLogger):
         # the output budget so input + output fits.
         self._cap_output_tokens(data)
 
+        # Per-user daily budget. This runs before the request leaves the
+        # machine, so an exhausted user is rejected without ever touching the
+        # upstream allowance.
+        self._enforce_budget(user_api_key_dict, data)
+
         return data
+
+    # --- per-user daily budget ------------------------------------------
+    # The gateway is shared. Each user key gets a fixed token allowance per
+    # calendar day, tracked in a local hash-chained ledger (gateway/ng_users.py)
+    # with no SQL and no external service. Enforcement happens here, before the
+    # upstream call, which is the only place a cap can be honest: any check
+    # after the call would still have spent the allowance.
+    _BUDGET_ERROR_TYPE = "rate_limit_error"
+
+    def _enforce_budget(self, user_api_key_dict, data: dict) -> None:
+        """Reject the call if the user has spent their daily token allowance."""
+        try:
+            ng_users = _ledger()
+        except Exception:
+            return  # never break the gateway over a missing ledger
+
+        try:
+            user = self._user_from_auth(user_api_key_dict)
+            if user is None:
+                return  # ledger not in use for this request
+            allowed, used, limit = ng_users.check_budget(user)
+            if allowed:
+                return
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "NG daily token limit reached: "
+                    f"{used}/{limit} tokens used today. "
+                    "The limit resets at midnight (server local time)."
+                ),
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # pragma: no cover
+            from litellm import verbose_logger
+
+            verbose_logger.warning(f"ng-gateway: budget check failed: {exc}")
+            return
+
+    @staticmethod
+    def _user_from_auth(user_api_key_dict) -> str | None:
+        """Resolve the caller's ledger user id from the auth object.
+
+        custom_auth (ng_auth.py) returns a UserAPIKeyAuth whose user_id is the
+        ledger user, so this is normally a single attribute read. The raw token
+        is the fallback, which lets the ledger verify the key itself.
+        """
+        if user_api_key_dict is None:
+            return None
+        uid = getattr(user_api_key_dict, "user_id", None)
+        if isinstance(uid, str) and uid:
+            return uid
+        token = getattr(user_api_key_dict, "token", None) or getattr(
+            user_api_key_dict, "api_key", None)
+        if isinstance(token, str) and token:
+            try:
+                return _ledger().verify_key(token)
+            except Exception:
+                return None
+        return None
+
+    @staticmethod
+    def _resolve_user(kwargs: dict) -> str | None:
+        """Resolve the ledger user from a logging event's kwargs.
+
+        Success/failure logging events carry the caller in
+        ``litellm_params.metadata`` as ``user_api_key_user_id`` (set by
+        custom_auth), with the raw key as ``user_api_key``. Both are present on
+        every confirmed call.
+        """
+        if not isinstance(kwargs, dict):
+            return None
+        params = kwargs.get("litellm_params")
+        meta = params.get("metadata") if isinstance(params, dict) else None
+        if not isinstance(meta, dict):
+            return None
+        uid = meta.get("user_api_key_user_id")
+        if isinstance(uid, str) and uid:
+            return uid
+        token = meta.get("user_api_key")
+        if isinstance(token, str) and token:
+            try:
+                return _ledger().verify_key(token)
+            except Exception:
+                return None
+        return None
 
     # --- sampling boost ---------------------------------------------------
     # This gateway relays a compact, fast model. Left at client defaults its

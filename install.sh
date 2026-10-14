@@ -78,6 +78,14 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
   good "Model discovered."
 fi
 
+# litellm needs a provider prefix to know which wire protocol to use. The
+# discovery returns a bare model id, so add "openai/" unless the value already
+# carries a provider prefix.
+case "$NG_UPSTREAM_MODEL" in
+  */*) ;;  # already prefixed
+  *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL"; export NG_UPSTREAM_MODEL ;;
+esac
+
 # ----------------------- 3. the gateway ----------------------------
 if [[ ! -x "$VENV/bin/litellm" ]]; then
   say "Building an isolated Python environment (one-time, about 1 min)..."
