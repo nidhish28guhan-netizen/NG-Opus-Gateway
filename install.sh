@@ -3,17 +3,16 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.sh | bash
 #
-# Starts the gateway, asks which client to wire up, installs any client that
-# is missing, wires the model in, and prints the base URL and API key.
+# Zero prompts: upstream credentials live in gateway/upstream.env (committed).
+# The model name is auto-discovered from the provider. This script starts the
+# gateway, asks which client to wire up, installs any missing client, wires the
+# model in, and prints the base URL and API key.
 set -euo pipefail
 
 # ---------------------------- constants ----------------------------
 BRAND="NG free gateway"
 REPO="nidhish28guhan-netizen/NG-Opus-Gateway"
 INSTALL_DIR="${NG_GATEWAY_DIR:-$HOME/.ng-opus-gateway}"
-PORT="${NG_GATEWAY_PORT:-4002}"
-GATEWAY_KEY="${NG_GATEWAY_KEY:-NG-Claude-Anthropic}"
-ENV_FILE="$INSTALL_DIR/scripts/gateway.env"
 LOG="$INSTALL_DIR/gateway.log"
 VENV="$INSTALL_DIR/.venv"
 LABEL="ai.ng-opus-gateway.gateway"
@@ -44,51 +43,40 @@ else
 fi
 cd "$INSTALL_DIR"
 
-# ---------------------- 2. upstream key ----------------------------
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp scripts/gateway.env.example "$ENV_FILE"
+# ----------------- 2. load committed credentials -------------------
+# Everything needed to reach the upstream is committed in upstream.env, so
+# this installer asks for nothing. See gateway/upstream.env.
+if [[ ! -f "gateway/upstream.env" ]]; then
+  bad "gateway/upstream.env is missing. The repo is incomplete."
+  exit 1
 fi
-# shellcheck disable=SC1090
 set +u; # shellcheck source=/dev/null
-source "$ENV_FILE"
+source gateway/upstream.env
 set -u
 
-if [[ -z "${NG_UPSTREAM_TOKEN:-}" || "$NG_UPSTREAM_TOKEN" == *"PASTE_YOUR_TOKEN_HERE"* ]]; then
-  echo
-  say "The gateway needs three things from your upstream provider."
-  say "Get them from your provider dashboard, then paste them below."
-  echo
-  # Read from /dev/tty, not stdin: when this script is run as
-  # "curl ... | bash", stdin is the curl pipe and a plain "read" would hit
-  # EOF immediately and look like an empty answer.
-  ask "Upstream key (starts with tj_):"
-  read -r KEY_IN < /dev/tty
-  if [[ -z "$KEY_IN" ]]; then
-    bad "No key entered. Cannot continue."
-    exit 1
-  fi
-  ask "Upstream model name (as listed in the provider /v1/models):"
-  read -r MODEL_IN < /dev/tty
-  if [[ -z "$MODEL_IN" ]]; then
-    bad "No model name entered. Cannot continue."
-    exit 1
-  fi
-  ask "Upstream base URL (default https://api.tokenjuice.ai/v1):"
-  read -r BASE_IN < /dev/tty
-  BASE_IN="${BASE_IN:-https://api.tokenjuice.ai/v1}"
-
-  sed -i '' -e "s|^NG_UPSTREAM_TOKEN=.*|NG_UPSTREAM_TOKEN=\"${KEY_IN}\"|" \
-            -e "s|^NG_UPSTREAM_MODEL=.*|NG_UPSTREAM_MODEL=\"${MODEL_IN}\"|" \
-            -e "s|^NG_UPSTREAM_BASE=.*|NG_UPSTREAM_BASE=\"${BASE_IN}\"|" "$ENV_FILE"
-  NG_UPSTREAM_TOKEN="$KEY_IN"
-  NG_UPSTREAM_MODEL="$MODEL_IN"
-  NG_UPSTREAM_BASE="$BASE_IN"
-  good "Saved to $ENV_FILE (git-ignored, never uploaded)."
-fi
-
-export NG_UPSTREAM_TOKEN NG_UPSTREAM_MODEL NG_UPSTREAM_BASE
+GATEWAY_KEY="${NG_GATEWAY_KEY:-NG-Claude-Anthropic}"
+PORT="${NG_GATEWAY_PORT:-4002}"
+export NG_UPSTREAM_TOKEN NG_UPSTREAM_BASE GATEWAY_KEY PORT
 export NG_GATEWAY_KEY="$GATEWAY_KEY"
 export CLAUDE_DESKTOP_LITELLM_KEY="$GATEWAY_KEY"
+
+# Discover the model name from the provider instead of hardcoding it, so the
+# repo never names a specific upstream model and survives a swap upstream.
+if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
+  say "Discovering the model from the provider..."
+  NG_UPSTREAM_MODEL="$(
+    curl -s -m 30 "${NG_UPSTREAM_BASE}/models" \
+      -H "Authorization: Bearer ${NG_UPSTREAM_TOKEN}" \
+      | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null || true
+  )"
+  if [[ -z "$NG_UPSTREAM_MODEL" ]]; then
+    bad "Could not discover the model from the provider."
+    bad "Check the upstream key in gateway/upstream.env and your network."
+    exit 1
+  fi
+  export NG_UPSTREAM_MODEL
+  good "Model discovered."
+fi
 
 # ----------------------- 3. the gateway ----------------------------
 if [[ ! -x "$VENV/bin/litellm" ]]; then
@@ -134,9 +122,10 @@ PLISTDOC
 launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
 
 say "Starting the gateway on port $PORT..."
+BASE_URL="http://127.0.0.1:${PORT}"
 UP=0
 for _i in $(seq 1 40); do
-  if curl -s -m 3 -o /dev/null "http://127.0.0.1:${PORT}/health/liveliness" 2>/dev/null; then
+  if curl -s -m 3 -o /dev/null "${BASE_URL}/health/liveliness" 2>/dev/null; then
     UP=1
     break
   fi
@@ -149,7 +138,6 @@ fi
 good "Gateway is live."
 
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
-BASE_URL="http://127.0.0.1:${PORT}"
 LAN_URL="http://${LAN_IP:-THIS_MACHINE_LAN_IP}:${PORT}"
 
 # ------------------------- 4. pick a client ------------------------
@@ -314,9 +302,9 @@ esac
 
 # ---------------------- 6. show credentials ------------------------
 banner
-echo "  Base URL    $BASE_URL"
+echo "  Base URL    $BASE_URL/v1"
 if [[ -n "$LAN_IP" ]]; then
-  echo "  LAN URL     $LAN_URL  (other devices on your Wi-Fi)"
+  echo "  LAN URL     $LAN_URL/v1  (other devices on your Wi-Fi)"
 fi
 echo "  API key     $GATEWAY_KEY"
 echo "  Model       claude-opus-5-5"

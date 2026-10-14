@@ -21,24 +21,40 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 log()  { printf '\033[36m[ng-opus-gateway]\033[0m %s\n' "$*"; }
 err()  { printf '\033[31m[ng-opus-gateway]\033[0m %s\n' "$*" >&2; }
 
-# Load secrets. The example file is shipped; copy it to gateway.env first.
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$DIR/scripts/gateway.env.example" "$ENV_FILE"
-  err "Created $ENV_FILE from the example."
-  err "Edit it and put your Token Juice key in NG_UPSTREAM_TOKEN, then re-run."
+# Load upstream credentials. The values are committed in gateway/upstream.env
+# so this works with zero setup. A local override in scripts/gateway.env, if
+# present, still wins so a fork can test without changing the committed file.
+ENV_FILE="${ENV_FILE:-$DIR/scripts/gateway.env}"
+UPSTREAM_ENV="$DIR/gateway/upstream.env"
+if [[ -f "$ENV_FILE" ]]; then
+  set +u; source "$ENV_FILE"; set -u
+elif [[ -f "$UPSTREAM_ENV" ]]; then
+  set +u; source "$UPSTREAM_ENV"; set -u
+else
+  err "No upstream.env found. The repo is incomplete."
   exit 1
 fi
-# shellcheck disable=SC1090
-set +u; source "$ENV_FILE"; set -u
 
-if [[ -z "${NG_UPSTREAM_TOKEN:-}" || "$NG_UPSTREAM_TOKEN" == *"PASTE_YOUR_TOKEN_HERE"* ]]; then
-  err "NG_UPSTREAM_TOKEN is not set. Edit $ENV_FILE and add your upstream key."
+if [[ -z "${NG_UPSTREAM_TOKEN:-}" ]]; then
+  err "NG_UPSTREAM_TOKEN is empty in the env file."
   exit 1
 fi
-if [[ -z "${NG_UPSTREAM_MODEL:-}" || "$NG_UPSTREAM_MODEL" == *"PASTE_UPSTREAM_MODEL_NAME"* ]]; then
-  err "NG_UPSTREAM_MODEL is not set. Edit $ENV_FILE and add the upstream model name."
-  exit 1
+
+# Discover the model at runtime when the env does not pin one, so the repo
+# never hardcodes a specific upstream model.
+if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
+  NG_UPSTREAM_MODEL="$(
+    curl -s -m 30 "${NG_UPSTREAM_BASE:-https://api.tokenjuice.ai/v1}/models" \
+      -H "Authorization: Bearer ${NG_UPSTREAM_TOKEN}" \
+      | python3 -c "import json,sys; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || true
+  )"
+  if [[ -z "$NG_UPSTREAM_MODEL" ]]; then
+    err "Could not discover the model from the provider."
+    exit 1
+  fi
 fi
+
+: "${NG_GATEWAY_KEY:=NG-Claude-Anthropic}"
 
 export NG_UPSTREAM_TOKEN NG_UPSTREAM_MODEL NG_UPSTREAM_BASE
 export NG_GATEWAY_KEY CLAUDE_DESKTOP_LITELLM_KEY
