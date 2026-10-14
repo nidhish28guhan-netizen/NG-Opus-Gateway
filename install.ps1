@@ -8,12 +8,10 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$Brand  = "NG's free gateway"
+$Brand  = "NG free gateway"
 $Repo   = "nidhish28guhan-netizen/NG-Opus-Gateway"
 $Dir    = if ($env:NG_GATEWAY_DIR) { $env:NG_GATEWAY_DIR } else { "$env:USERPROFILE\.ng-opus-gateway" }
 $Port   = if ($env:NG_GATEWAY_PORT) { $env:NG_GATEWAY_PORT } else { "4002" }
-$Key    = if ($env:NG_GATEWAY_KEY) { $env:NG_GATEWAY_KEY } else { "NG-Claude-Anthropic" }
-$EnvFile = Join-Path $Dir "scripts\gateway.env"
 $Log     = Join-Path $Dir "gateway.log"
 $Venv    = Join-Path $Dir ".venv"
 $TaskName = "ng-opus-gateway"
@@ -40,40 +38,45 @@ if (-not (Test-Path (Join-Path $Dir ".git"))) {
 }
 Push-Location $Dir
 
-# ---------------------- 2. upstream key ---------------------------
+# -------------- 2. load committed credentials ---------------------
+# Everything needed to reach the upstream is committed in
+# gateway/upstream.env, so this installer asks for nothing.
+$EnvFile = Join-Path $Dir "gateway\upstream.env"
 if (-not (Test-Path $EnvFile)) {
-  Copy-Item (Join-Path $Dir "scripts\gateway.env.example") $EnvFile
+  Write-Bad "gateway/upstream.env is missing. The repo is incomplete."
+  exit 1
 }
-Get-Content $EnvFile | ForEach-Object {
+$EnvOverride = Join-Path $Dir "scripts\gateway.env"
+# A local override still wins so a fork can test privately.
+$LoadFile = if (Test-Path $EnvOverride) { $EnvOverride } else { $EnvFile }
+Get-Content $LoadFile | ForEach-Object {
   $line = $_.Trim()
   if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
     $k, $v = $line.Split("=", 2)
-    Set-Item -Path "Env:$k" -Value $v
+    Set-Item -Path "Env:$k" -Value $v.Trim('"')
   }
 }
 
-if (-not $env:NG_UPSTREAM_TOKEN -or $env:NG_UPSTREAM_TOKEN -like "*PASTE_YOUR_TOKEN_HERE*") {
-  Write-Host ""
-  Write-Info "The gateway needs three things from your upstream provider."
-  Write-Info "Get them from your provider dashboard, then paste them below."
-  Write-Host ""
-  $keyIn = Read-Host "? Upstream key (starts with tj_)"
-  if (-not $keyIn) { Write-Bad "No key entered. Cannot continue."; exit 1 }
-  $modelIn = Read-Host "? Upstream model name (as listed in the provider /v1/models)"
-  if (-not $modelIn) { Write-Bad "No model name entered. Cannot continue."; exit 1 }
-  $baseIn = Read-Host "? Upstream base URL (default https://api.tokenjuice.ai/v1)"
-  if (-not $baseIn) { $baseIn = "https://api.tokenjuice.ai/v1" }
-
-  (Get-Content $EnvFile) `
-    -replace '^NG_UPSTREAM_TOKEN=.*', "NG_UPSTREAM_TOKEN=`"$keyIn`"" `
-    -replace '^NG_UPSTREAM_MODEL=.*', "NG_UPSTREAM_MODEL=`"$modelIn`"" `
-    -replace '^NG_UPSTREAM_BASE=.*',  "NG_UPSTREAM_BASE=`"$baseIn`"" |
-    Set-Content $EnvFile
-  $env:NG_UPSTREAM_TOKEN = $keyIn
-  $env:NG_UPSTREAM_MODEL = $modelIn
-  $env:NG_UPSTREAM_BASE  = $baseIn
-  Write-Good "Saved to $EnvFile (git-ignored, never uploaded)."
+if (-not $env:NG_UPSTREAM_TOKEN) {
+  Write-Bad "NG_UPSTREAM_TOKEN is empty in gateway/upstream.env."
+  exit 1
 }
+
+# Discover the model from the provider instead of hardcoding it.
+if (-not $env:NG_UPSTREAM_MODEL) {
+  Write-Info "Discovering the model from the provider..."
+  try {
+    $modelsResp = Invoke-RestMethod -Uri "$($env:NG_UPSTREAM_BASE)/models" `
+      -Headers @{ Authorization = "Bearer $($env:NG_UPSTREAM_TOKEN)" } -TimeoutSec 30
+    $env:NG_UPSTREAM_MODEL = $modelsResp.data[0].id
+    Write-Good "Model discovered."
+  } catch {
+    Write-Bad "Could not discover the model from the provider. Check the key in gateway/upstream.env."
+    exit 1
+  }
+}
+
+$Key = if ($env:NG_GATEWAY_KEY) { $env:NG_GATEWAY_KEY } else { "NG-Claude-Anthropic" }
 $env:NG_GATEWAY_KEY = $Key
 $env:CLAUDE_DESKTOP_LITELLM_KEY = $Key
 
@@ -93,7 +96,7 @@ Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Silent
 $Litellm = Join-Path $Venv "Scripts\litellm.exe"
 $Config  = Join-Path $Dir "gateway\litellm-config.yaml"
 # Task Scheduler starts in a fresh session that does not inherit our env vars,
-# so write a wrapper that reloads gateway.env before launching.
+# so write a wrapper that reloads upstream.env before launching.
 $wrapper = Join-Path $Dir "scripts\run-gateway.cmd"
 @"
 @echo off

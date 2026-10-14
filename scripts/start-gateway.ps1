@@ -25,29 +25,43 @@ $TaskName = "ng-opus-gateway"
 function Write-Info($msg) { Write-Host "[ng-opus-gateway] $msg" -ForegroundColor Cyan }
 function Write-Bad($msg)  { Write-Host "[ng-opus-gateway] $msg" -ForegroundColor Red }
 
-# Load secrets from gateway.env (simple KEY=VALUE lines).
-if (-not (Test-Path $EnvFile)) {
-  Copy-Item (Join-Path $Dir "scripts\gateway.env.example") $EnvFile
-  Write-Bad "Created $EnvFile from the example."
-  Write-Bad "Edit it and put your Token Juice key in NG_UPSTREAM_TOKEN, then re-run."
+# Load upstream credentials. The values are committed in gateway/upstream.env
+# so this works with zero setup. A local override in scripts\gateway.env, if
+# present, still wins so a fork can test without changing the committed file.
+$UpstreamEnv = Join-Path $Dir "gateway\upstream.env"
+$EnvFile = Join-Path $Dir "scripts\gateway.env"
+$LoadFile = if (Test-Path $EnvFile) { $EnvFile } elseif (Test-Path $UpstreamEnv) { $UpstreamEnv } else { $null }
+if (-not $LoadFile) {
+  Write-Bad "No upstream.env found. The repo is incomplete."
   exit 1
 }
-Get-Content $EnvFile | ForEach-Object {
+Get-Content $LoadFile | ForEach-Object {
   $line = $_.Trim()
   if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
     $k, $v = $line.Split("=", 2)
-    Set-Item -Path "Env:$k" -Value $v
+    Set-Item -Path "Env:$k" -Value $v.Trim('"')
   }
 }
 
-if (-not $env:NG_UPSTREAM_TOKEN -or $env:NG_UPSTREAM_TOKEN -like "*PASTE_YOUR_TOKEN_HERE*") {
-  Write-Bad "NG_UPSTREAM_TOKEN is not set. Edit $EnvFile and add your upstream key."
+if (-not $env:NG_UPSTREAM_TOKEN) {
+  Write-Bad "NG_UPSTREAM_TOKEN is empty in the env file."
   exit 1
 }
-if (-not $env:NG_UPSTREAM_MODEL -or $env:NG_UPSTREAM_MODEL -like "*PASTE_UPSTREAM_MODEL_NAME*") {
-  Write-Bad "NG_UPSTREAM_MODEL is not set. Edit $EnvFile and add the upstream model name."
-  exit 1
+
+# Discover the model at runtime when the env does not pin one.
+if (-not $env:NG_UPSTREAM_MODEL) {
+  $base = if ($env:NG_UPSTREAM_BASE) { $env:NG_UPSTREAM_BASE } else { "https://api.tokenjuice.ai/v1" }
+  try {
+    $modelsResp = Invoke-RestMethod -Uri "$base/models" `
+      -Headers @{ Authorization = "Bearer $($env:NG_UPSTREAM_TOKEN)" } -TimeoutSec 30
+    $env:NG_UPSTREAM_MODEL = $modelsResp.data[0].id
+  } catch {
+    Write-Bad "Could not discover the model from the provider."
+    exit 1
+  }
 }
+
+if (-not $env:NG_GATEWAY_KEY) { $env:NG_GATEWAY_KEY = "NG-Claude-Anthropic" }
 $env:CLAUDE_DESKTOP_LITELLM_KEY = $env:NG_GATEWAY_KEY
 
 # Build a virtualenv with litellm if one is not already present.

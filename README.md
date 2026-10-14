@@ -44,7 +44,7 @@ irm https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/mai
 The installer will:
 
 1. Download itself into `~/.ng-opus-gateway` (or `%USERPROFILE%\.ng-opus-gateway` on Windows)
-2. Ask for three things from your upstream provider — the **key**, the **model name**, and the **base URL**. They are stored locally in a git-ignored file and never uploaded
+2. Discover the model from the provider automatically — it asks you for **nothing**
 3. Build an isolated Python environment and start the gateway on port `4002`
 4. Ask which client to use:
 
@@ -111,7 +111,6 @@ provider** inside that app using the base URL and API key the installer printed.
 - macOS or Windows
 - Python 3.10+ (`python3` / `python`)
 - **Node/npm** — only needed if you want the Claude Code or Codex CLIs installed
-- An upstream provider key (the installer asks for it)
 
 ## Managing the gateway
 
@@ -134,11 +133,15 @@ cd $env:USERPROFILE\.ng-opus-gateway
 .\scripts\start-gateway.ps1 -Stop
 ```
 
-## Keeping your key safe
+## The upstream credentials
 
-- Your upstream key lives in `scripts/gateway.env`, which is **git-ignored**.
-- The example file in the repo (`gateway.env.example`) ships with a placeholder.
-- Never paste your real key into a commit, an issue, or the README.
+- This is a **free gateway**: the upstream key is committed in
+  [`gateway/upstream.env`](gateway/upstream.env) so the whole thing runs with
+  zero setup. Just run the one command and pick a client.
+- It is **limited time** — the key can be rotated or revoked, and the gateway
+  stops working when it does. That is by design.
+- Forking? Replace the values in `gateway/upstream.env` with your own provider
+  key, or drop a local `scripts/gateway.env` (git-ignored) to override it.
 
 ## How requests are normalized
 
