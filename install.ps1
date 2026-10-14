@@ -196,7 +196,7 @@ function Wire-Codex {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   @"
 # Wired by NG-Opus-Gateway
-model = "claude-opus-5-5"
+model = "claude-sonnet-5-5"
 model_provider = "ng-gateway"
 
 [model_providers.ng-gateway]
@@ -215,7 +215,7 @@ function Wire-Antigravity {
   Install-Antigravity | Out-Null
   $dir = "$env:USERPROFILE\.antigravity"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $cfg = @{ provider = "ng-gateway"; model = "claude-opus-5-5"; baseUrl = "$BaseUrl/v1"; apiKey = $Key }
+  $cfg = @{ provider = "ng-gateway"; model = "claude-sonnet-5-5"; baseUrl = "$BaseUrl/v1"; apiKey = $Key }
   $cfg | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $dir "settings.json")
   Write-Good "Wrote Antigravity settings ($(Join-Path $dir 'settings.json'))."
   Write-Info "If Antigravity does not pick these up, add a custom OpenAI-compatible"
@@ -246,9 +246,9 @@ llm-pi-ai:
             initialDelayMs: 3000
             maxDelayMs: 45000
         models:
-          - id: claude-opus-5-5
-            name: Claude Opus 5.5 (ng-gateway)
-            contextWindow: 262144
+          - id: claude-sonnet-5-5
+            name: Claude Sonnet 5.5 (ng-gateway)
+            contextWindow: 1000000
             maxTokens: 128000
             input:
               - text
@@ -285,7 +285,7 @@ Write-Banner $Brand
 Write-Host "  Base URL    $BaseUrl" -ForegroundColor White
 Write-Host "  LAN URL     $LanUrl  (other devices on your Wi-Fi)" -ForegroundColor White
 Write-Host "  API key     $Key" -ForegroundColor White
-Write-Host "  Model       claude-opus-5-5" -ForegroundColor White
+Write-Host "  Model       claude-sonnet-5-5" -ForegroundColor White
 Write-Host ""
 Write-Info "Give these to any OpenAI-compatible client to use the gateway."
 Write-Host ""

@@ -208,7 +208,7 @@ wire_codex() {
   mkdir -p "$HOME/.codex"
   cat > "$HOME/.codex/config.toml" <<TOMLDOC
 # Wired by NG-Opus-Gateway
-model = "claude-opus-5-5"
+model = "claude-sonnet-5-5"
 model_provider = "ng-gateway"
 
 [model_providers.ng-gateway]
@@ -230,7 +230,7 @@ wire_antigravity() {
   cat > "$HOME/.antigravity/settings.json" <<JSONDOC
 {
   "provider": "ng-gateway",
-  "model": "claude-opus-5-5",
+  "model": "claude-sonnet-5-5",
   "baseUrl": "${BASE_URL}/v1",
   "apiKey": "${GATEWAY_KEY}"
 }
@@ -264,9 +264,9 @@ llm-pi-ai:
             initialDelayMs: 3000
             maxDelayMs: 45000
         models:
-          - id: claude-opus-5-5
-            name: Claude Opus 5.5 (ng-gateway)
-            contextWindow: 262144
+          - id: claude-sonnet-5-5
+            name: Claude Sonnet 5.5 (ng-gateway)
+            contextWindow: 1000000
             maxTokens: 128000
             input:
               - text
@@ -307,7 +307,7 @@ if [[ -n "$LAN_IP" ]]; then
   echo "  LAN URL     $LAN_URL/v1  (other devices on your Wi-Fi)"
 fi
 echo "  API key     $GATEWAY_KEY"
-echo "  Model       claude-opus-5-5"
+echo "  Model       claude-sonnet-5-5"
 echo
 say "Give these to any OpenAI-compatible client to use the gateway."
 echo

@@ -13,14 +13,19 @@ and it installs, wires itself to the model, and hands you the API key.**
 
 ## What this is
 
-A self-hosted gateway that exposes **`claude-opus-5-5`** to any OpenAI- or
+A self-hosted gateway that exposes **`claude-sonnet-5-5`** to any OpenAI- or
 Anthropic-compatible coding client on your machine. You run one command; it
 sets up the gateway, asks which client you use, installs that client if you
 don't already have it, connects it to the model, and prints the base URL and
 API key.
 
 It runs entirely on your own machine. No account, no sign-up, no dashboard —
-just the one upstream key the installer asks you for.
+and no keys to paste. The installer asks you for nothing.
+
+> 🧠 **1,000,000-token context.** The gateway advertises a 1M context window to
+> every client, so your coding sessions stay intact across large codebases and
+> long refactors. (See "How requests are normalized" for what happens on the
+> rare occasion a conversation outgrows it.)
 
 > ⏳ **Limited time only.** This is a free, capacity-sharing gateway. When the
 > upstream allowance is exhausted, it stops working. Enjoy it while it lasts.
@@ -66,7 +71,7 @@ At the end you'll see something like:
   Base URL    http://127.0.0.1:4002
   LAN URL     http://192.168.x.x:4002  (other devices on your Wi-Fi)
   API key     NG-Claude-Anthropic
-  Model       claude-opus-5-5
+  Model       claude-sonnet-5-5
 ```
 
 The gateway is set to auto-start on login, so after the first run you never
@@ -85,7 +90,8 @@ Point any OpenAI-compatible client at:
 |---|---|
 | Base URL | `http://<gateway-machine-ip>:4002/v1` |
 | API key | `NG-Claude-Anthropic` |
-| Model | `claude-opus-5-5` |
+| Model | `claude-sonnet-5-5` |
+| Context | **1,000,000 tokens** |
 
 Only the API key gates access — anyone on your Wi-Fi who has it can use the
 gateway. Change `NG_GATEWAY_KEY` in `scripts/gateway.env` if you need to.
@@ -160,6 +166,16 @@ before every upstream call and fixes them:
 
 On long conversations this means the oldest messages are dropped and replies
 get shorter. Start a fresh session to restore the full budget.
+
+## Contact
+
+Something broke, or the gateway stopped responding? Report it:
+
+**<nidhish28guhan123@gmail.com>**
+
+Send the error text, the client you were using, and the output of
+`./scripts/start-gateway.sh logs` (macOS) or `.\scripts\start-gateway.ps1 -Logs`
+(Windows). The more of that you include, the faster it gets fixed.
 
 ## License
 

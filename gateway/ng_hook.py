@@ -26,7 +26,7 @@ rejects ``medium`` and ``default`` with a bare 400::
 which surfaces in Claude Desktop as a failed request and in the proxy log as::
 
     litellm.BadRequestError: OpenAIException - Invalid request
-    LiteLLM: model group 'claude-opus-5-5' failed with the error above.
+    LiteLLM: model group 'claude-sonnet-5-5' failed with the error above.
 
 Claude Desktop's default thinking budget lands squarely in the 2048-4095
 bucket, so almost every Cowork/Code request maps to "medium" and fails.

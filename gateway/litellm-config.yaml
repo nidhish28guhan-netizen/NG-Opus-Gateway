@@ -12,7 +12,7 @@
 # or it silently drops the model from its picker — hence the claude-* name.
 
 model_list:
-  - model_name: claude-opus-5-5
+  - model_name: claude-sonnet-5-5
     litellm_params:
       model: os.environ/NG_UPSTREAM_MODEL
       api_base: os.environ/NG_UPSTREAM_BASE
