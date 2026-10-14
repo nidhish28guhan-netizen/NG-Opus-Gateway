@@ -79,10 +79,11 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
 fi
 
 # litellm needs a provider prefix to know which wire protocol to use. The
-# discovery returns a bare model id, so add "openai/" unless the value already
-# carries a provider prefix.
+# discovery returns a bare model id ("deepseek-ai/DeepSeek-..."), where the
+# slash is an org/name separator, NOT a litellm provider prefix. Add "openai/"
+# unless the value already starts with a prefix litellm recognizes.
 case "$NG_UPSTREAM_MODEL" in
-  */*) ;;  # already prefixed
+  anthropic/*|azure/*|openai/*|bedrock/*|cohere/*|gemini/*|vertex_ai/*|huggingface/*|together_ai/*|fireworks_ai/*|ollama/*|ollama_chat/*|groq/*|mistral/*|anyscale/*|deepseek/*|perplexity/*|openrouter/*|voyage/*|xai/*|litellm_proxy/*) ;;
   *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL"; export NG_UPSTREAM_MODEL ;;
 esac
 
@@ -91,13 +92,20 @@ if [[ ! -x "$VENV/bin/litellm" ]]; then
   say "Building an isolated Python environment (one-time, about 1 min)..."
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip
-  "$VENV/bin/pip" install --quiet litellm
+  "$VENV/bin/pip" install --quiet 'litellm[proxy]'
   good "Installed."
 fi
 
 # Stop any old instance on this port, then install the launchd agent.
+# Order matters: kill the listener FIRST so litellm lets go of the port, then
+# boot the old agent out and let launchd finish before re-registering. Doing
+# these in the wrong order (or booting out after needing the port) leaves the
+# agent unregistered and the gateway dead - which is the bug this fixes.
 lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null || true
-launchctl list "$LABEL" >/dev/null 2>&1 && launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+if launchctl list "$LABEL" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  sleep 3
+fi
 
 mkdir -p "$(dirname "$PLIST")"
 cat > "$PLIST" <<PLISTDOC
@@ -127,7 +135,19 @@ cat > "$PLIST" <<PLISTDOC
 </dict>
 </plist>
 PLISTDOC
-launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
+
+# Register the agent. bootstrap can race with the bootout above, so retry the
+# (re)start until it is actually registered and running, not just fire-and-forget.
+DOMAIN="gui/$(id -u)"
+for _attempt in 1 2 3 4 5; do
+  if ! launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+    launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || \
+      launchctl load -w "$PLIST" 2>/dev/null || true
+  fi
+  launchctl kickstart -k "$DOMAIN/$LABEL" 2>/dev/null || true
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 && break
+  sleep 3
+done
 
 say "Starting the gateway on port $PORT..."
 BASE_URL="http://127.0.0.1:${PORT}"

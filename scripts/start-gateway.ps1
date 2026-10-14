@@ -62,10 +62,13 @@ if (-not $env:NG_UPSTREAM_MODEL) {
 }
 
 # litellm needs a provider prefix to know which wire protocol to use. Discovery
-# returns a bare model id, so add "openai/" unless one is already present.
-if (-not $env:NG_UPSTREAM_MODEL.Contains('/')) {
-  $env:NG_UPSTREAM_MODEL = "openai/$($env:NG_UPSTREAM_MODEL)"
-}
+# returns a bare model id ("deepseek-ai/DeepSeek-..."), where the slash is an
+# org/name separator, NOT a litellm provider prefix. Add "openai/" unless the
+# value already starts with a prefix litellm recognizes.
+$knownPrefixes = @('anthropic/','azure/','openai/','bedrock/','cohere/','gemini/','vertex_ai/','huggingface/','together_ai/','fireworks_ai/','ollama/','ollama_chat/','groq/','mistral/','anyscale/','deepseek/','perplexity/','openrouter/','voyage/','xai/','litellm_proxy/')
+$prefixed = $false
+foreach ($p in $knownPrefixes) { if ($env:NG_UPSTREAM_MODEL.StartsWith($p)) { $prefixed = $true; break } }
+if (-not $prefixed) { $env:NG_UPSTREAM_MODEL = "openai/$($env:NG_UPSTREAM_MODEL)" }
 
 if (-not $env:NG_GATEWAY_KEY) { $env:NG_GATEWAY_KEY = "NG-Claude-Anthropic" }
 $env:CLAUDE_DESKTOP_LITELLM_KEY = $env:NG_GATEWAY_KEY
@@ -75,7 +78,7 @@ if (-not (Test-Path (Join-Path $Venv "Scripts\litellm.exe"))) {
   Write-Info "Building the virtualenv (one-time, ~1 min)..."
   python -m venv $Venv
   & (Join-Path $Venv "Scripts\python.exe") -m pip install --quiet --upgrade pip
-  & (Join-Path $Venv "Scripts\python.exe") -m pip install --quiet litellm
+  & (Join-Path $Venv "Scripts\python.exe") -m pip install --quiet 'litellm[proxy]'
 }
 
 $Litellm = Join-Path $Venv "Scripts\litellm.exe"

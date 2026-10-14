@@ -24,7 +24,10 @@ if [[ -z "${PY:-}" ]]; then
   exit 1
 fi
 
-export NG_LEDGER_FILE="${NG_LEDGER_FILE:-$DIR/gateway/gateway.ng-ledger.json}"
+# Must match ng_users._ledger_path()'s default: the gateway reads the ledger
+# from the REPO ROOT (gateway/../gateway.ng-ledger.json). Keep them in sync or
+# the admin tool and the gateway see two different files.
+export NG_LEDGER_FILE="${NG_LEDGER_FILE:-$DIR/gateway.ng-ledger.json}"
 export NG_REPO_DIR="$DIR"
 
 usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^#\s\?//; s#^./scripts#./scripts#' ; }

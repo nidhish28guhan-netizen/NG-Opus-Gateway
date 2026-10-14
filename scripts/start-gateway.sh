@@ -55,10 +55,11 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
 fi
 
 # litellm needs a provider prefix to know which protocol to speak. The
-# discovery above returns a bare model id, so prefix it unless the env already
-# carries one ("openai/...", "anthropic/...", ...).
+# discovery above returns a bare model id ("deepseek-ai/DeepSeek-..."), where
+# the slash is an org/name separator, NOT a litellm provider prefix. Prefix it
+# unless the env already carries one litellm recognizes.
 case "$NG_UPSTREAM_MODEL" in
-  */*) ;;  # already prefixed
+  anthropic/*|azure/*|openai/*|bedrock/*|cohere/*|gemini/*|vertex_ai/*|huggingface/*|together_ai/*|fireworks_ai/*|ollama/*|ollama_chat/*|groq/*|mistral/*|anyscale/*|deepseek/*|perplexity/*|openrouter/*|voyage/*|xai/*|litellm_proxy/*) ;;
   *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL" ;;
 esac
 
@@ -72,7 +73,7 @@ if [[ ! -x "$VENV/bin/litellm" ]]; then
   log "Building the virtualenv (one-time, ~1 min)..."
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip
-  "$VENV/bin/pip" install --quiet litellm
+  "$VENV/bin/pip" install --quiet 'litellm[proxy]'
 fi
 
 LITELLM_BIN="$VENV/bin/litellm"
