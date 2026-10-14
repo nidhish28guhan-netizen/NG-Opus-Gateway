@@ -1,4 +1,4 @@
-"""NG-Opus-Gateway gateway request hook.
+"""NG-Sonnet-Gateway gateway request hook.
 
 Registered from litellm-config.desktop.yaml via:
 

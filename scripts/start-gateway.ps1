@@ -20,10 +20,10 @@ $EnvFile = Join-Path $Dir "scripts\gateway.env"
 $Log = Join-Path $Dir "gateway.log"
 $Venv = Join-Path $Dir ".venv"
 $Port = if ($env:GATEWAY_PORT) { $env:GATEWAY_PORT } else { "4002" }
-$TaskName = "ng-opus-gateway"
+$TaskName = "ng-sonnet-gateway"
 
-function Write-Info($msg) { Write-Host "[ng-opus-gateway] $msg" -ForegroundColor Cyan }
-function Write-Bad($msg)  { Write-Host "[ng-opus-gateway] $msg" -ForegroundColor Red }
+function Write-Info($msg) { Write-Host "[ng-sonnet-gateway] $msg" -ForegroundColor Cyan }
+function Write-Bad($msg)  { Write-Host "[ng-sonnet-gateway] $msg" -ForegroundColor Red }
 
 # Load upstream credentials. The values are committed in gateway/upstream.env
 # so this works with zero setup. A local override in scripts\gateway.env, if
@@ -50,9 +50,12 @@ if (-not $env:NG_UPSTREAM_TOKEN) {
 
 # Discover the model at runtime when the env does not pin one.
 if (-not $env:NG_UPSTREAM_MODEL) {
-  $base = if ($env:NG_UPSTREAM_BASE) { $env:NG_UPSTREAM_BASE } else { "https://api.tokenjuice.ai/v1" }
+  if (-not $env:NG_UPSTREAM_BASE) {
+    Write-Bad "NG_UPSTREAM_BASE is not set. gateway/upstream.env looks broken."
+    exit 1
+  }
   try {
-    $modelsResp = Invoke-RestMethod -Uri "$base/models" `
+    $modelsResp = Invoke-RestMethod -Uri "$($env:NG_UPSTREAM_BASE)/models" `
       -Headers @{ Authorization = "Bearer $($env:NG_UPSTREAM_TOKEN)" } -TimeoutSec 30
     $env:NG_UPSTREAM_MODEL = $modelsResp.data[0].id
   } catch {
@@ -62,9 +65,9 @@ if (-not $env:NG_UPSTREAM_MODEL) {
 }
 
 # litellm needs a provider prefix to know which wire protocol to use. Discovery
-# returns a bare model id ("deepseek-ai/DeepSeek-..."), where the slash is an
-# org/name separator, NOT a litellm provider prefix. Add "openai/" unless the
-# value already starts with a prefix litellm recognizes.
+# returns a bare model id with an org/name separator slash, which is NOT a
+# litellm provider prefix. Add "openai/" unless the value already starts with
+# a prefix litellm recognizes.
 $knownPrefixes = @('anthropic/','azure/','openai/','bedrock/','cohere/','gemini/','vertex_ai/','huggingface/','together_ai/','fireworks_ai/','ollama/','ollama_chat/','groq/','mistral/','anyscale/','deepseek/','perplexity/','openrouter/','voyage/','xai/','litellm_proxy/')
 $prefixed = $false
 foreach ($p in $knownPrefixes) { if ($env:NG_UPSTREAM_MODEL.StartsWith($p)) { $prefixed = $true; break } }

@@ -15,11 +15,11 @@ ENV_FILE="${ENV_FILE:-$DIR/scripts/gateway.env}"
 LOG="${LOG:-$DIR/gateway.log}"
 VENV="${VENV:-$DIR/.venv}"
 PORT="${GATEWAY_PORT:-4002}"
-LABEL="ai.ng-opus-gateway.gateway"
+LABEL="ai.ng-sonnet-gateway.gateway"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-log()  { printf '\033[36m[ng-opus-gateway]\033[0m %s\n' "$*"; }
-err()  { printf '\033[31m[ng-opus-gateway]\033[0m %s\n' "$*" >&2; }
+log()  { printf '\033[36m[ng-sonnet-gateway]\033[0m %s\n' "$*"; }
+err()  { printf '\033[31m[ng-sonnet-gateway]\033[0m %s\n' "$*" >&2; }
 
 # Load upstream credentials. The values are committed in gateway/upstream.env
 # so this works with zero setup. A local override in scripts/gateway.env, if
@@ -44,7 +44,7 @@ fi
 # never hardcodes a specific upstream model.
 if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
   NG_UPSTREAM_MODEL="$(
-    curl -s -m 30 "${NG_UPSTREAM_BASE:-https://api.tokenjuice.ai/v1}/models" \
+    curl -s -m 30 "${NG_UPSTREAM_BASE:?set by gateway/upstream.env}/models" \
       -H "Authorization: Bearer ${NG_UPSTREAM_TOKEN}" \
       | python3 -c "import json,sys; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || true
   )"
@@ -55,9 +55,9 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
 fi
 
 # litellm needs a provider prefix to know which protocol to speak. The
-# discovery above returns a bare model id ("deepseek-ai/DeepSeek-..."), where
-# the slash is an org/name separator, NOT a litellm provider prefix. Prefix it
-# unless the env already carries one litellm recognizes.
+# discovery above returns a bare model id with an org/name separator slash,
+# which is NOT a litellm provider prefix. Prefix it unless the env already
+# carries one litellm recognizes.
 case "$NG_UPSTREAM_MODEL" in
   anthropic/*|azure/*|openai/*|bedrock/*|cohere/*|gemini/*|vertex_ai/*|huggingface/*|together_ai/*|fireworks_ai/*|ollama/*|ollama_chat/*|groq/*|mistral/*|anyscale/*|deepseek/*|perplexity/*|openrouter/*|voyage/*|xai/*|litellm_proxy/*) ;;
   *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL" ;;

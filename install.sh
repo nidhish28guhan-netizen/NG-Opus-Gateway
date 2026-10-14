@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# NG-Opus-Gateway - interactive installer (macOS)
+# NG-Sonnet-Gateway - interactive installer (macOS)
 #
-#   curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Sonnet-Gateway/main/install.sh | bash
 #
 # Zero prompts: upstream credentials live in gateway/upstream.env (committed).
 # The model name is auto-discovered from the provider. This script starts the
@@ -11,11 +11,11 @@ set -euo pipefail
 
 # ---------------------------- constants ----------------------------
 BRAND="NG free gateway"
-REPO="nidhish28guhan-netizen/NG-Opus-Gateway"
-INSTALL_DIR="${NG_GATEWAY_DIR:-$HOME/.ng-opus-gateway}"
+REPO="nidhish28guhan-netizen/NG-Sonnet-Gateway"
+INSTALL_DIR="${NG_GATEWAY_DIR:-$HOME/.ng-sonnet-gateway}"
 LOG="$INSTALL_DIR/gateway.log"
 VENV="$INSTALL_DIR/.venv"
-LABEL="ai.ng-opus-gateway.gateway"
+LABEL="ai.ng-sonnet-gateway.gateway"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 # ---------------------------- helpers ------------------------------
@@ -33,8 +33,18 @@ banner() {
 }
 
 # ------------------------ 1. get the code --------------------------
+# Migrate a legacy "opus" install in place: the repo was renamed, so move the
+# old directory (keeping the venv, the token ledger, and the logs) if this is
+# the same machine upgrading.
+LEGACY_DIR="$HOME/.ng-opus-gateway"
+if [[ "$INSTALL_DIR" == "$HOME/.ng-sonnet-gateway" && -d "$LEGACY_DIR/.git" && ! -d "$INSTALL_DIR/.git" ]]; then
+  say "Migrating the existing install from $LEGACY_DIR..."
+  mv "$LEGACY_DIR" "$INSTALL_DIR"
+  good "Migrated (venv, user ledger, and logs kept)."
+fi
+
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-  say "Cloning NG-Opus-Gateway into $INSTALL_DIR..."
+  say "Cloning NG-Sonnet-Gateway into $INSTALL_DIR..."
   git clone -q "https://github.com/${REPO}.git" "$INSTALL_DIR"
   good "Downloaded."
 else
@@ -79,9 +89,10 @@ if [[ -z "${NG_UPSTREAM_MODEL:-}" ]]; then
 fi
 
 # litellm needs a provider prefix to know which wire protocol to use. The
-# discovery returns a bare model id ("deepseek-ai/DeepSeek-..."), where the
-# slash is an org/name separator, NOT a litellm provider prefix. Add "openai/"
-# unless the value already starts with a prefix litellm recognizes.
+# discovery returns a bare model id with an org/name separator slash, which is
+# NOT a litellm provider prefix. Add "openai/" unless the value already starts
+# with a prefix litellm recognizes. The upstream id itself is never written
+# into the repo - it is discovered at runtime from the provider.
 case "$NG_UPSTREAM_MODEL" in
   anthropic/*|azure/*|openai/*|bedrock/*|cohere/*|gemini/*|vertex_ai/*|huggingface/*|together_ai/*|fireworks_ai/*|ollama/*|ollama_chat/*|groq/*|mistral/*|anyscale/*|deepseek/*|perplexity/*|openrouter/*|voyage/*|xai/*|litellm_proxy/*) ;;
   *) NG_UPSTREAM_MODEL="openai/$NG_UPSTREAM_MODEL"; export NG_UPSTREAM_MODEL ;;
@@ -109,6 +120,14 @@ lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null || t
 if launchctl list "$LABEL" >/dev/null 2>&1; then
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   sleep 3
+fi
+# Retire the pre-rename agent, which otherwise keeps holding the port.
+LEGACY_LABEL="ai.ng-opus-gateway.gateway"
+if launchctl list "$LEGACY_LABEL" >/dev/null 2>&1; then
+  say "Retiring the old gateway agent..."
+  launchctl bootout "gui/$(id -u)/$LEGACY_LABEL" 2>/dev/null || true
+  rm -f "$HOME/Library/LaunchAgents/${LEGACY_LABEL}.plist" 2>/dev/null || true
+  good "Retired."
 fi
 
 mkdir -p "$(dirname "$PLIST")"
@@ -239,7 +258,7 @@ wire_codex() {
   install_codex || return 0
   mkdir -p "$HOME/.codex"
   cat > "$HOME/.codex/config.toml" <<TOMLDOC
-# Wired by NG-Opus-Gateway
+# Wired by NG-Sonnet-Gateway
 model = "claude-sonnet-5-5"
 model_provider = "ng-gateway"
 

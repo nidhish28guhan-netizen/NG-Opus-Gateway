@@ -1,6 +1,6 @@
-# NG-Opus-Gateway — interactive installer (Windows)
+# NG-Sonnet-Gateway — interactive installer (Windows)
 #
-#   irm https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Sonnet-Gateway/main/install.ps1 | iex
 #
 # Starts the gateway, then asks which client to wire up, installing any client
 # that is missing, and prints the base URL and API key at the end.
@@ -9,12 +9,12 @@ param()
 
 $ErrorActionPreference = "Stop"
 $Brand  = "NG free gateway"
-$Repo   = "nidhish28guhan-netizen/NG-Opus-Gateway"
-$Dir    = if ($env:NG_GATEWAY_DIR) { $env:NG_GATEWAY_DIR } else { "$env:USERPROFILE\.ng-opus-gateway" }
+$Repo   = "nidhish28guhan-netizen/NG-Sonnet-Gateway"
+$Dir    = if ($env:NG_GATEWAY_DIR) { $env:NG_GATEWAY_DIR } else { "$env:USERPROFILE\.ng-sonnet-gateway" }
 $Port   = if ($env:NG_GATEWAY_PORT) { $env:NG_GATEWAY_PORT } else { "4002" }
 $Log     = Join-Path $Dir "gateway.log"
 $Venv    = Join-Path $Dir ".venv"
-$TaskName = "ng-opus-gateway"
+$TaskName = "ng-sonnet-gateway"
 
 function Write-Info($m) { Write-Host "[*] $m" -ForegroundColor Cyan }
 function Write-Good($m) { Write-Host "[+] $m" -ForegroundColor Green }
@@ -29,7 +29,7 @@ function Write-Banner($t) {
 
 # ------------------------ 1. get the code -------------------------
 if (-not (Test-Path (Join-Path $Dir ".git"))) {
-  Write-Info "Cloning NG-Opus-Gateway into $Dir..."
+  Write-Info "Cloning NG-Sonnet-Gateway into $Dir..."
   git clone -q "https://github.com/$Repo.git" $Dir
   Write-Good "Downloaded."
 } else {
@@ -77,9 +77,10 @@ if (-not $env:NG_UPSTREAM_MODEL) {
 }
 
 # litellm needs a provider prefix to know which wire protocol to use. Discovery
-# returns a bare model id ("deepseek-ai/DeepSeek-..."), where the slash is an
-# org/name separator, NOT a litellm provider prefix. Add "openai/" unless the
-# value already starts with a prefix litellm recognizes.
+# returns a bare model id with an org/name separator slash, which is NOT a
+# litellm provider prefix. Add "openai/" unless the value already starts with
+# a prefix litellm recognizes. The upstream id itself is never written into
+# the repo - it is discovered at runtime from the provider.
 $knownPrefixes = @('anthropic/','azure/','openai/','bedrock/','cohere/','gemini/','vertex_ai/','huggingface/','together_ai/','fireworks_ai/','ollama/','ollama_chat/','groq/','mistral/','anyscale/','deepseek/','perplexity/','openrouter/','voyage/','xai/','litellm_proxy/')
 $prefixed = $false
 foreach ($p in $knownPrefixes) { if ($env:NG_UPSTREAM_MODEL.StartsWith($p)) { $prefixed = $true; break } }
@@ -110,6 +111,17 @@ if ($needsVenv) {
 Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+# Retire the pre-rename task, which otherwise keeps holding the port.
+Unregister-ScheduledTask -TaskName "ng-opus-gateway" -Confirm:$false -ErrorAction SilentlyContinue
+# Migrate a legacy "opus" install in place: the repo was renamed, so move the
+# old directory (keeping the venv, the token ledger, and the logs).
+$LegacyDir = Join-Path $env:USERPROFILE ".ng-opus-gateway"
+$DefaultDir = Join-Path $env:USERPROFILE ".ng-sonnet-gateway"
+if ($Dir -eq $DefaultDir -and (Test-Path (Join-Path $LegacyDir ".git")) -and -not (Test-Path (Join-Path $Dir ".git"))) {
+  Write-Info "Migrating the existing install from $LegacyDir..."
+  Move-Item -Path $LegacyDir -Destination $Dir -Force
+  Write-Good "Migrated (venv, user ledger, and logs kept)."
+}
 
 $Litellm = Join-Path $Venv "Scripts\litellm.exe"
 $Config  = Join-Path $Dir "gateway\litellm-config.yaml"
@@ -213,7 +225,7 @@ function Wire-Codex {
   $dir = "$env:USERPROFILE\.codex"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   @"
-# Wired by NG-Opus-Gateway
+# Wired by NG-Sonnet-Gateway
 model = "claude-sonnet-5-5"
 model_provider = "ng-gateway"
 

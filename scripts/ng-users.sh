@@ -15,7 +15,7 @@ set -euo pipefail
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PY="${PYTHON:-}"
 if [[ -z "$PY" ]]; then
-  for candidate in "$DIR/.venv/bin/python" "$HOME/.ng-opus-gateway/.venv/bin/python" python3; do
+  for candidate in "$DIR/.venv/bin/python" "$HOME/.ng-sonnet-gateway/.venv/bin/python" python3; do
     if [[ -x "$candidate" ]]; then PY="$candidate"; break; fi
   done
 fi

@@ -1,6 +1,6 @@
 <div align="center">
 
-# NG-Opus-Gateway
+# NG-Sonnet-Gateway
 
 ### NG's free gateway — **Limited time only**
 
@@ -37,18 +37,18 @@ Copy **one** line into your terminal. That's the whole setup.
 **macOS**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Sonnet-Gateway/main/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Opus-Gateway/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/nidhish28guhan-netizen/NG-Sonnet-Gateway/main/install.ps1 | iex
 ```
 
 The installer will:
 
-1. Download itself into `~/.ng-opus-gateway` (or `%USERPROFILE%\.ng-opus-gateway` on Windows)
+1. Download itself into `~/.ng-sonnet-gateway` (or `%USERPROFILE%\.ng-sonnet-gateway` on Windows)
 2. Discover the model from the provider automatically — it asks you for **nothing**
 3. Build an isolated Python environment and start the gateway on port `4002`
 4. Ask which client to use:
@@ -123,7 +123,7 @@ provider** inside that app using the base URL and API key the installer printed.
 **macOS**
 
 ```bash
-cd ~/.ng-opus-gateway
+cd ~/.ng-sonnet-gateway
 ./scripts/start-gateway.sh status     # running?
 ./scripts/start-gateway.sh logs       # tail the log
 ./scripts/start-gateway.sh stop       # stop
@@ -133,7 +133,7 @@ cd ~/.ng-opus-gateway
 **Windows**
 
 ```powershell
-cd $env:USERPROFILE\.ng-opus-gateway
+cd $env:USERPROFILE\.ng-sonnet-gateway
 .\scripts\start-gateway.ps1 -Status
 .\scripts\start-gateway.ps1 -Logs
 .\scripts\start-gateway.ps1 -Stop
@@ -145,7 +145,7 @@ The key the installer prints is the **owner key**. It has no limit. If you
 share the gateway with other people, give each person their own key instead:
 
 ```bash
-cd ~/.ng-opus-gateway
+cd ~/.ng-sonnet-gateway
 ./scripts/ng-users.sh add alice          # prints a key ONCE - copy it
 ./scripts/ng-users.sh list               # who spent what today
 ./scripts/ng-users.sh reset  alice       # new key, old one stops working

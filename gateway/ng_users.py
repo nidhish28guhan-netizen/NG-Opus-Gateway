@@ -1,4 +1,4 @@
-"""NG-Opus-Gateway user ledger.
+"""NG-Sonnet-Gateway user ledger.
 
 A self-contained, SQL-free store for per-user API keys and daily token usage.
 

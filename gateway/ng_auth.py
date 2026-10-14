@@ -1,4 +1,4 @@
-"""NG-Opus-Gateway custom auth.
+"""NG-Sonnet-Gateway custom auth.
 
 Wired into gateway/litellm-config.yaml as ``general_settings.custom_auth``.
 This is what makes litellm accept per-user keys without a database: litellm
